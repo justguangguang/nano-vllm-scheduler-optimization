@@ -84,15 +84,19 @@ class Scheduler:
         # 循环条件：
         # 1. Waiting 队列中还有请求
         # 2. 本轮选中的请求数没有超过 max_num_seqs
-        while self.waiting and len(scheduled_seqs) < self.max_num_seqs: # Waiting 队列中仍然存在请求; 本轮已选择的请求数量没有达到 max_num_seqs
-            # 查看 Waiting 队首请求。
-            # 此处只读取，不立即从队列移除。
+        # Queue Bypass v1: snapshot Waiting, scan each candidate once.
+        # Requests skipped for insufficient resources remain in their original relative order.
+        for seq in list(self.waiting):
+            if len(scheduled_seqs) >= self.max_num_seqs:
+                break
+            # 遍历 Waiting 快照中的当前请求，不要求位于队首。
+            # 仅在完整 Prefill 已安排完成时从 Waiting 删除。
             #
             # 因为后面还要判断：
             # - Token Budget 是否足够
             # - KV Cache Block 是否足够
             # - 是否允许本轮 Chunked Prefill
-            seq = self.waiting[0]
+            # seq comes from the Waiting snapshot (not necessarily queue head).
             remaining = self.max_num_batched_tokens - num_batched_tokens # 计算本轮剩余的 Prefill Token Budget。 
             if remaining == 0:  # 如果本轮 Token Budget 已耗尽，不再继续选择 Prefill 请求。 
                 break
@@ -111,10 +115,10 @@ class Scheduler:
                 # -1：物理 Block 资源不足，无法分配
                 # >=0：连续命中的完整前缀 Block 数量
                 num_cached_blocks = self.block_manager.can_allocate(seq)    # 返回值:(-1, 当前可用 Block 不足，无法完成所需分配; 0, 可以分配, 但没有可复用的前缀 Block; 正整数, 可复用的完整前缀 Block 数量) 
-                # 如果当前没有足够的 Block，本轮停止 Prefill 调度。
-                # 注意：这里是 break，而不是 continue。因此不会跳过队首请求去尝试后面的请求。
+                # 如果当前请求没有足够的 Block，尝试后续 Waiting 请求。
+                # 当前策略：continue，绕过暂时不可分配的请求。
                 if num_cached_blocks == -1:
-                    break
+                    continue  # KV capacity insufficient; try a later request
 
                 # 本次需要计算的 Token 数。
                 # 如果前缀缓存命中，已经计算过的
@@ -140,7 +144,7 @@ class Scheduler:
             # 1. 当前剩余 Token Budget 不够完成这个请求
             # 2. 本轮已经选择了其他请求
             #
-            # 那么本轮不再选择当前请求。
+            # 那么本轮跳过当前请求，但继续检查后续更短的请求。
             #
             # 这样做的效果是：
             # 只允许本轮第一个被选中的 Sequence
@@ -150,7 +154,7 @@ class Scheduler:
             # 在剩余预算内完成它们本轮剩余的 Prefill。  
             # # 只允许本轮第一个请求做 chunked prefill          
             if remaining < num_tokens and scheduled_seqs:  # only allow chunked prefill for the first seq
-                break
+                continue  # preserve one-chunk rule; try a smaller later request
             # -------------------------------------------------
             # 3. 实际分配 KV Block
             # -------------------------------------------------
@@ -189,7 +193,7 @@ class Scheduler:
                 # 提前将请求标记为 RUNNING。
                 # 注意：此时还没有真正执行 Forward。只是已经安排好本轮完成 Prefill。
                 seq.status = SequenceStatus.RUNNING
-                self.waiting.popleft()
+                self.waiting.remove(seq)  # selected request may not be the head
                 self.running.append(seq)
             scheduled_seqs.append(seq)
 
