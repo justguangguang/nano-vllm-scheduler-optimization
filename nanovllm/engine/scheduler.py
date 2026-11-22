@@ -96,13 +96,25 @@ class Scheduler:
                 if bypass_probes >= bypass_probe_limit:
                     break
                 free_blocks = len(self.block_manager.free_block_ids)
-                # Protect one free block for ongoing decode sequences.
-                if self.running and free_blocks <= 1:
-                    break
+                # V3: preserve capacity for running decodes whose next KV block
+                # boundary is <= 32 decode steps away. This is a heuristic,
+                # NOT a bound on future KV demand; still monitor preemptions.
+                decode_lookahead = 32
+                decode_reserve = 0
+                if self.running:
+                    decode_reserve = max(1, sum(
+                        ((1 - len(running_seq) % self.block_size) % self.block_size)
+                        < decode_lookahead
+                        for running_seq in self.running
+                    ))
+                    if free_blocks <= decode_reserve:
+                        break
                 bypass_probes += 1
-                # Conservative upper bound; may miss beneficial prefix hits.
-                # Applied only to bypass candidates, not FIFO selections.
-                if self.running and not seq.block_table and seq.num_blocks > free_blocks - 1:
+                # Reserve enough free physical blocks for near-future decodes.
+                # The full prompt-block estimate is conservative and may miss
+                # candidates with prefix-cache hits; test such cases separately.
+                if (self.running and not seq.block_table and
+                        seq.num_blocks > free_blocks - decode_reserve):
                     continue
             # 遍历 Waiting 快照中的当前请求，不要求位于队首。
             # 仅在完整 Prefill 已安排完成时从 Waiting 删除。
