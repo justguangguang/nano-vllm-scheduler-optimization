@@ -1,0 +1,34 @@
+main: git=2f712b1 (phase1/baseline) scheduler_sha=05cc3479307d
+v2: git=cb1e807 (feat/queue-bypass-v2-guarded) scheduler_sha=d2eb95025dd8
+v3: git=451d3dd (feat/queue-bypass-v3-decode-headroom) scheduler_sha=b7d1872ab99d
+
+E2 metric (median) | main | v2 | v3 | v3 vs v2
+---|---:|---:|---:|---:
+throughput_tok_s | 545.419 | 490.281 | 500.361 | +2.06%
+elapsed_sec | 0.293 | 0.326 | 0.320 | -1.84%
+prefill_steps | 2.000 | 3.000 | 3.000 | +0.00%
+decode_steps | 62.000 | 62.000 | 62.000 | +0.00%
+prefill_tokens | 2348.000 | 2395.000 | 2348.000 | -1.96%
+prefill_token_overhead | 0.000 | 47.000 | 0.000 | -100.00%
+preemptions | 0.000 | 1.000 | 0.000 | -100.00%
+owner_preemptions | 0.000 | 0.000 | 0.000 | -
+medium_preemptions | 0.000 | 1.000 | 0.000 | -100.00%
+schedule_cpu_ms | 1.284 | 1.469 | 1.570 | +6.88%
+bypass_steps | 0.000 | 1.000 | 1.000 | +0.00%
+bypassed_requests | 0.000 | 1.000 | 1.000 | +0.00%
+owner_tpot_est_mean_ms | 3.586 | 4.616 | 4.638 | +0.48%
+owner_e2e_mean_ms | 142.857 | 174.704 | 176.279 | +0.90%
+head_ttft_ms | 142.786 | 174.978 | 175.873 | +0.51%
+medium_ttft_ms | 142.764 | 30.914 | 175.852 | +468.84%
+short_ttft_ms | 142.757 | 174.952 | 31.178 | -82.18%
+short_e2e_ms | 262.210 | 294.004 | 143.730 | -51.11%
+
+First scheduling step after late requests arrive:
+main: decode ['owner_a', 'owner_b']; preemptions=0
+v2: prefill ['medium']; preemptions=1
+v3: prefill ['short']; preemptions=0
+
+Interpretation guardrails:
+SUPPORTED: v3 reduced preemptions relative to v2 in this controlled workload.
+EXPECTED: v3 admitted the one-block short request first.
+This is deliberately constrained KV capacity (metadata allocator only); not default-capacity serving.

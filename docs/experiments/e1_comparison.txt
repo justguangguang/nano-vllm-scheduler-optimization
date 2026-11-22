@@ -1,0 +1,24 @@
+Baseline: 2f712b1 05cc3479307d
+V3: 451d3dd b7d1872ab99d 
+Metric | Baseline | V3 | Delta % (positive = V3 bigger)
+---|---:|---:|---:
+throughput_tok_s | 2163.390 | 2548.267 | +17.79%
+prefill_steps | 48.000 | 36.000 | -25.00%
+decode_steps | 63.000 | 63.000 | +0.00%
+schedule_cpu_ms | 5.685 | 5.501 | -3.24%
+bypass_steps | 0.000 | 24.000 | -
+bypassed_requests_selected | 0.000 | 24.000 | -
+preemptions | 0.000 | 0.000 | -
+long_ttft_p50_ms | 711.216 | 571.580 | -19.63%
+long_ttft_p95_ms | 1322.581 | 1033.188 | -21.88%
+long_e2e_p95_ms | 2129.901 | 1808.200 | -15.10%
+medium_ttft_p50_ms | 740.061 | 571.677 | -22.75%
+medium_ttft_p95_ms | 1352.995 | 1055.102 | -22.02%
+medium_e2e_p95_ms | 2129.896 | 1808.195 | -15.10%
+short_ttft_p50_ms | 740.057 | 571.571 | -22.77%
+short_ttft_p95_ms | 1352.991 | 1033.178 | -23.64%
+short_e2e_p95_ms | 2129.890 | 1808.191 | -15.10%
+
+First trial first-prefill batch:
+main: ['long']
+v3:   ['long', 'short']
