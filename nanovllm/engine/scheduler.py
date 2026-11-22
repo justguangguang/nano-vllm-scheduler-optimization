@@ -84,11 +84,26 @@ class Scheduler:
         # 循环条件：
         # 1. Waiting 队列中还有请求
         # 2. 本轮选中的请求数没有超过 max_num_seqs
-        # Queue Bypass v1: snapshot Waiting, scan each candidate once.
-        # Requests skipped for insufficient resources remain in their original relative order.
+        # Guarded Queue Bypass v2: inspect at most 4 later candidates
+        # after encountering a blocked request; protect active decode KV capacity.
+        bypass_mode = False
+        bypass_probes = 0
+        bypass_probe_limit = 4
         for seq in list(self.waiting):
             if len(scheduled_seqs) >= self.max_num_seqs:
                 break
+            if bypass_mode:
+                if bypass_probes >= bypass_probe_limit:
+                    break
+                free_blocks = len(self.block_manager.free_block_ids)
+                # Protect one free block for ongoing decode sequences.
+                if self.running and free_blocks <= 1:
+                    break
+                bypass_probes += 1
+                # Conservative upper bound; may miss beneficial prefix hits.
+                # Applied only to bypass candidates, not FIFO selections.
+                if self.running and not seq.block_table and seq.num_blocks > free_blocks - 1:
+                    continue
             # 遍历 Waiting 快照中的当前请求，不要求位于队首。
             # 仅在完整 Prefill 已安排完成时从 Waiting 删除。
             #
@@ -118,7 +133,8 @@ class Scheduler:
                 # 如果当前请求没有足够的 Block，尝试后续 Waiting 请求。
                 # 当前策略：continue，绕过暂时不可分配的请求。
                 if num_cached_blocks == -1:
-                    continue  # KV capacity insufficient; try a later request
+                    bypass_mode = True
+                    continue  # KV capacity insufficient; try a bounded number of later requests
 
                 # 本次需要计算的 Token 数。
                 # 如果前缀缓存命中，已经计算过的
@@ -154,7 +170,8 @@ class Scheduler:
             # 在剩余预算内完成它们本轮剩余的 Prefill。  
             # # 只允许本轮第一个请求做 chunked prefill          
             if remaining < num_tokens and scheduled_seqs:  # only allow chunked prefill for the first seq
-                continue  # preserve one-chunk rule; try a smaller later request
+                bypass_mode = True
+                continue  # preserve one-chunk rule; try smaller later requests
             # -------------------------------------------------
             # 3. 实际分配 KV Block
             # -------------------------------------------------
